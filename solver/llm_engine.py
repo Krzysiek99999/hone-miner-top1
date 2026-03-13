@@ -208,7 +208,7 @@ class LLMEngine:
                         {"role": "user", "content": prompt},
                     ],
                     temperature=temp,
-                    max_tokens=4096,
+                    max_tokens=2048,
                     timeout=min(remaining - 2, 90),
                 )
                 content = response.choices[0].message.content
@@ -754,14 +754,15 @@ def _execute_solver_code(
     for imp_str in safe_imports:
         clean_code = clean_code.replace(imp_str, '')
 
-    namespace = {}
     builtins_dict = _safe_builtins()
+    # CRITICAL: use same dict for globals and locals so functions can see each other
+    namespace = {"__builtins__": builtins_dict}
 
     def _timeout_handler(signum, frame):
         raise TimeoutError("Code execution timed out")
 
     try:
-        exec(clean_code, {"__builtins__": builtins_dict}, namespace)
+        exec(clean_code, namespace, namespace)
     except Exception:
         return None
 
