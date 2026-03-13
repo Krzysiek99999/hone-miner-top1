@@ -95,7 +95,11 @@ class Orchestrator:
                 "metadata": task.get("metadata", {}),
             })
 
+        fast_count = sum(1 for i in results if i not in [j for j in range(total) if j not in results])
         print(f"\n[Orchestrator] {self.budget.summary()}")
+        print(f"[Orchestrator] LLM available: {self.llm.available}, model: {self.llm.model_name}")
+        print(f"[Orchestrator] Predictions: {len(predictions)} total, "
+              f"{sum(1 for p in predictions if p.get('predicted_output') is not None)} non-null")
         return predictions
 
     def _difficulty_score(self, task: Dict) -> float:

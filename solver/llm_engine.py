@@ -39,21 +39,43 @@ class LLMEngine:
         self._init_client()
 
     def _init_client(self):
+        from config import VLLM_API_BASE
+        api_base = VLLM_API_BASE
+        print(f"[LLM] Connecting to vLLM at: {api_base}")
+
+        max_retries = 30
+        retry_interval = 10  # seconds
+
         try:
             from openai import OpenAI
-            from config import VLLM_API_BASE
-            api_base = VLLM_API_BASE
-            self.client = OpenAI(base_url=f"{api_base}/v1", api_key="dummy")
-            models = self.client.models.list()
-            model_ids = [m.id for m in models.data]
-            if model_ids:
-                self.model_name = model_ids[0]
-                self.available = True
-                print(f"[LLM] Connected to vLLM: {self.model_name}")
-            else:
-                print("[LLM] No models available on vLLM server")
-        except Exception as e:
-            print(f"[LLM] vLLM not available: {e}")
+        except ImportError:
+            print("[LLM] ERROR: openai package not installed!")
+            return
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                self.client = OpenAI(
+                    base_url=f"{api_base}/v1",
+                    api_key="dummy",
+                    timeout=15.0,
+                )
+                models = self.client.models.list()
+                model_ids = [m.id for m in models.data]
+                if model_ids:
+                    self.model_name = model_ids[0]
+                    self.available = True
+                    print(f"[LLM] Connected to vLLM: {self.model_name} (attempt {attempt}/{max_retries})")
+                    return
+                else:
+                    print(f"[LLM] Attempt {attempt}/{max_retries}: vLLM responded but no models loaded yet")
+            except Exception as e:
+                print(f"[LLM] Attempt {attempt}/{max_retries}: {e}")
+
+            if attempt < max_retries:
+                time.sleep(retry_interval)
+
+        print(f"[LLM] WARNING: Could not connect to vLLM after {max_retries} attempts ({max_retries * retry_interval}s)")
+        print(f"[LLM] Falling back to Layer 1 only (no LLM)")
 
     def solve(
         self,

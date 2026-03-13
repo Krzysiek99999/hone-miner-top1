@@ -73,8 +73,18 @@ def run_prep_phase(cache_dir: Path = CACHE_DIR) -> None:
             cache_dir=str(cache_dir),
             local_dir=str(local_dir),
         )
-        files_count = len(list(Path(downloaded_path).glob("*")))
-        print(f"  Downloaded to: {downloaded_path} ({files_count} files)")
+        all_files = list(Path(downloaded_path).rglob("*"))
+        files_count = len([f for f in all_files if f.is_file()])
+        total_size_gb = sum(f.stat().st_size for f in all_files if f.is_file()) / (1024**3)
+        print(f"  Downloaded to: {downloaded_path}")
+        print(f"  Files: {files_count}, Total size: {total_size_gb:.1f} GB")
+        # List safetensors/bin files for verification
+        model_files = [f.name for f in all_files if f.suffix in ('.safetensors', '.bin')]
+        print(f"  Model files: {len(model_files)}")
+        for mf in sorted(model_files)[:10]:
+            print(f"    - {mf}")
+        if len(model_files) > 10:
+            print(f"    ... and {len(model_files) - 10} more")
 
     except Exception as e:
         print(f"  ERROR: {e}")

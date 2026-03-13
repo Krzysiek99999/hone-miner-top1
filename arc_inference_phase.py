@@ -15,9 +15,17 @@ from solver.orchestrator import Orchestrator
 
 
 def run_inference_phase(input_dir: Path, output_dir: Path) -> None:
+    import os
     print("\n" + "=" * 60)
     print("INFERENCE PHASE — Solving ARC-AGI-2 Problems")
     print("=" * 60)
+
+    # Diagnostic info for debugging sandbox issues
+    print(f"\n[ENV] VLLM_API_BASE = {os.environ.get('VLLM_API_BASE', '(not set)')}")
+    print(f"[ENV] SOLVER_MODEL  = {os.environ.get('SOLVER_MODEL', '(not set)')}")
+    print(f"[ENV] HF_HOME       = {os.environ.get('HF_HOME', '(not set)')}")
+    print(f"[ENV] Python version = {sys.version}")
+    print(f"[ENV] Working dir    = {os.getcwd()}")
 
     try:
         print(f"\n[1/3] Loading input data from {input_dir}...")
@@ -25,7 +33,7 @@ def run_inference_phase(input_dir: Path, output_dir: Path) -> None:
         problems: List[Dict[str, Any]] = data["tasks"]
         print(f"       Loaded {len(problems)} problems")
 
-        print("[2/3] Initializing solver pipeline...")
+        print("[2/3] Initializing solver pipeline (connecting to vLLM)...")
         orchestrator = Orchestrator()
 
         print("[3/3] Solving problems...")
