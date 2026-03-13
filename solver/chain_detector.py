@@ -68,11 +68,6 @@ def try_direct_transforms(
     if result is not None:
         return result
 
-    # Try triple parameterless transforms (covers chain_len=3)
-    result = _try_triple_transforms(train_inputs, train_outputs, test_input)
-    if result is not None:
-        return result
-
     return None
 
 

@@ -494,31 +494,81 @@ def _build_chain_decomposition_prompt(
     train_examples: List[Dict],
     test_input: Grid,
 ) -> str:
-    """Prompt that tells the LLM about chained transforms (ARC-AGI-2 specific)."""
+    """Prompt with actual transform code so LLM can compose them."""
     parts = []
     analysis = _analyze_problem(train_examples, test_input)
 
     parts.append("""# ARC-AGI-2 Chain Decomposition
 
-This is an ARC-AGI-2 puzzle. The transformation is a CHAIN of 3-7 simple operations applied one after another.
+This puzzle applies a CHAIN of 3-7 simple operations. Identify each and compose them.
 
-IMPORTANT: Break the problem into individual steps. Each step is one of these operations:
-- rotate_90, rotate_180, rotate_270 (rotate the entire grid)
-- flip_horizontal (reverse each row), flip_vertical (reverse row order)
-- transpose (swap rows and columns)
-- zoom_2x (each pixel becomes 2x2 block), zoom_3x (each pixel becomes 3x3 block)
-- swap_colors(a, b) (swap two colors everywhere)
-- remove_color(c) (replace color c with black/0)
-- highlight_color(c) (keep only color c, everything else becomes gray/5)
-- gravity_down/up/left/right (push non-black cells to one side)
-- shift(direction, amount) (shift grid content)
-- recenter (center the non-black content)
+Here are ALL possible operations (use these exact implementations in your solve function):
 
-APPROACH:
-1. Look at how dimensions change between input and output
-2. Look at how colors change
-3. Identify each operation in sequence
-4. Write `solve(input_grid)` that applies them in order
+def rotate_90(g):
+    h,w=len(g),len(g[0]); return [[g[h-1-j][i] for j in range(h)] for i in range(w)]
+def rotate_180(g):
+    return [row[::-1] for row in g[::-1]]
+def rotate_270(g):
+    return rotate_90(rotate_180(g))
+def flip_horizontal(g):
+    return [row[::-1] for row in g]
+def flip_vertical(g):
+    return g[::-1]
+def transpose(g):
+    h,w=len(g),len(g[0]); return [[g[i][j] for i in range(h)] for j in range(w)]
+def zoom_2x(g):
+    h,w=len(g),len(g[0]); r=[[0]*(w*2) for _ in range(h*2)]
+    for i in range(h):
+        for j in range(w): c=g[i][j]; r[i*2][j*2]=c; r[i*2][j*2+1]=c; r[i*2+1][j*2]=c; r[i*2+1][j*2+1]=c
+    return r
+def zoom_3x(g):
+    h,w=len(g),len(g[0]); r=[[0]*(w*3) for _ in range(h*3)]
+    for i in range(h):
+        for j in range(w):
+            for di in range(3):
+                for dj in range(3): r[i*3+di][j*3+dj]=g[i][j]
+    return r
+def swap_colors(g,a,b):
+    return [[b if v==a else a if v==b else v for v in row] for row in g]
+def remove_color(g,c):
+    return [[0 if v==c else v for v in row] for row in g]
+def highlight_color(g,c):
+    return [[v if v==c or v==0 else 5 for v in row] for row in g]
+def gravity_down(g):
+    h,w=len(g),len(g[0]); r=[[0]*w for _ in range(h)]
+    for c in range(w):
+        wp=h-1
+        for i in range(h-1,-1,-1):
+            if g[i][c]!=0: r[wp][c]=g[i][c]; wp-=1
+    return r
+def gravity_up(g):
+    h,w=len(g),len(g[0]); r=[[0]*w for _ in range(h)]
+    for c in range(w):
+        wp=0
+        for i in range(h):
+            if g[i][c]!=0: r[wp][c]=g[i][c]; wp+=1
+    return r
+def gravity_left(g):
+    h,w=len(g),len(g[0]); r=[[0]*w for _ in range(h)]
+    for i in range(h):
+        wp=0
+        for j in range(w):
+            if g[i][j]!=0: r[i][wp]=g[i][j]; wp+=1
+    return r
+def gravity_right(g):
+    h,w=len(g),len(g[0]); r=[[0]*w for _ in range(h)]
+    for i in range(h):
+        wp=w-1
+        for j in range(w-1,-1,-1):
+            if g[i][j]!=0: r[i][wp]=g[i][j]; wp-=1
+    return r
+
+Write solve(input_grid) by composing these. Example:
+def solve(input_grid):
+    x = rotate_90(input_grid)
+    x = swap_colors(x, 1, 3)
+    x = zoom_2x(x)
+    return x
 """)
 
     if analysis:
@@ -529,7 +579,7 @@ APPROACH:
         out = ex["output"]
         ih, iw = dims(inp)
         oh, ow = dims(out)
-        parts.append(f"## Example {i} ({ih}x{iw} → {oh}x{ow})")
+        parts.append(f"## Example {i} ({ih}x{iw} -> {oh}x{ow})")
         parts.append(f"Input: {json.dumps(inp)}")
         parts.append(f"Output: {json.dumps(out)}\n")
 
@@ -537,7 +587,7 @@ APPROACH:
     parts.append(f"## Test Input ({th}x{tw})")
     parts.append(f"JSON: {json.dumps(test_input)}\n")
 
-    parts.append("Write `solve(input_grid)` as a chain of simple operations. Test it mentally against all examples.")
+    parts.append("Include the helper functions you use inside solve(). Compose them to match ALL examples.")
 
     return "\n".join(parts)
 
