@@ -11,6 +11,7 @@ We detect transforms from the END of the chain backwards (outermost first),
 because those are most visible in the final output structure.
 """
 
+import time
 from typing import List, Dict, Optional, Tuple, Any
 from solver.grid_utils import Grid, dims, grids_equal, colors_in, deep_copy, is_valid, non_black_count
 from solver import transforms as T
@@ -599,12 +600,13 @@ _CHAIN_TRANSFORMS = sorted([
 ])
 
 
-def _try_chain_n(inputs, outputs, test_input, max_depth=5):
+def _try_chain_n(inputs, outputs, test_input, max_depth=5, time_limit=5.0):
     """Try chains of N parameterless transforms with dimension filtering.
 
     Uses dimension pre-filtering to eliminate >95% of combinations instantly.
     Only computes actual transforms for dimension-compatible chains.
     Accumulates transform results through DFS to avoid re-applying full chain at leaves.
+    Aborts if time_limit exceeded (falls through to LLM layers).
     """
     if not inputs or not outputs:
         return None
@@ -616,8 +618,21 @@ def _try_chain_n(inputs, outputs, test_input, max_depth=5):
     names = _CHAIN_TRANSFORMS
     funcs = {n: T.ALL_TRANSFORMS[n] for n in names}
 
+    start_time = time.time()
+    state = {'nodes': 0, 'timed_out': False}
+
     # Build dimension-filtered chains using DFS with accumulation
     def search(depth, target_depth, cur_h, cur_w, chain, accumulated):
+        if state['timed_out']:
+            return None
+
+        # Check time every 5000 nodes
+        state['nodes'] += 1
+        if state['nodes'] % 5000 == 0:
+            if time.time() - start_time > time_limit:
+                state['timed_out'] = True
+                return None
+
         if depth == target_depth:
             if (cur_h, cur_w) != (oh, ow):
                 return None
@@ -657,6 +672,8 @@ def _try_chain_n(inputs, outputs, test_input, max_depth=5):
 
     # Try depth 3, then 4, then 5
     for depth in range(3, max_depth + 1):
+        if state['timed_out']:
+            break
         result = search(0, depth, ih, iw, [], inp0)
         if result is not None:
             return result
