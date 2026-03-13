@@ -172,8 +172,8 @@ class LLMEngine:
         if most_common_count > 1:
             return json.loads(most_common_str)
 
-        # No consensus — return first candidate (lowest temperature = most confident)
-        return candidates[0]
+        # No consensus — return None to avoid inflating denominator with wrong answers
+        return None
 
     def _solve_with_program(
         self,
