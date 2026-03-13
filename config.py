@@ -23,7 +23,7 @@ MODEL_CACHE_DIR = os.environ.get("MODEL_CACHE_DIR", "/app/models")
 # ============= vLLM CONFIG (for /info endpoint) =============
 VLLM_DTYPE = os.environ.get("VLLM_DTYPE", "auto")
 VLLM_GPU_MEMORY_UTIL = float(os.environ.get("VLLM_GPU_MEMORY_UTIL", "0.90"))
-VLLM_MAX_MODEL_LEN = int(os.environ.get("VLLM_MAX_MODEL_LEN", "16384"))
+VLLM_MAX_MODEL_LEN = int(os.environ.get("VLLM_MAX_MODEL_LEN", "32768"))
 WEIGHT_CLASS = os.environ.get("WEIGHT_CLASS", "2xH200")
 
 # ============= SOLVER =============
@@ -31,7 +31,7 @@ WEIGHT_CLASS = os.environ.get("WEIGHT_CLASS", "2xH200")
 TOTAL_TIME_BUDGET = float(os.environ.get("TOTAL_TIME_BUDGET", "3500"))
 
 # Max time per task for LLM (seconds)
-MAX_TASK_TIME = float(os.environ.get("MAX_TASK_TIME", "60"))
+MAX_TASK_TIME = float(os.environ.get("MAX_TASK_TIME", "45"))
 
 # Number of voting attempts for direct LLM solving
 VOTE_ATTEMPTS = int(os.environ.get("VOTE_ATTEMPTS", "5"))
@@ -40,7 +40,7 @@ VOTE_ATTEMPTS = int(os.environ.get("VOTE_ATTEMPTS", "5"))
 PROGRAM_ATTEMPTS = int(os.environ.get("PROGRAM_ATTEMPTS", "3"))
 
 # Max tokens for LLM response
-MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "8192"))
+MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "2048"))
 
 # LLM temperature range for voting (start, step)
 TEMP_START = float(os.environ.get("TEMP_START", "0.3"))

@@ -21,11 +21,11 @@ class TimeBudget:
         if tasks_remaining <= 0:
             return 0.0
         remaining = self.remaining()
-        # Reserve minimum 3s per remaining task
-        min_reserved = max(0, (tasks_remaining - 1) * 3)
+        # Reserve minimum 2s per remaining task
+        min_reserved = max(0, (tasks_remaining - 1) * 2)
         available = remaining - min_reserved
-        # Cap at 60s per task
-        return max(3.0, min(60.0, available))
+        # Cap at 45s per task to spread budget across more tasks
+        return max(3.0, min(45.0, available))
 
     def should_use_llm(self, tasks_remaining: int) -> bool:
         return self.budget_for_task(tasks_remaining) >= 8.0

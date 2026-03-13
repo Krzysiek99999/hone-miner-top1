@@ -57,7 +57,7 @@ class LLMEngine:
                 self.client = OpenAI(
                     base_url=f"{api_base}/v1",
                     api_key="dummy",
-                    timeout=15.0,
+                    timeout=120.0,
                 )
                 models = self.client.models.list()
                 model_ids = [m.id for m in models.data]
@@ -90,11 +90,11 @@ class LLMEngine:
 
         start = time.time()
 
-        # Allocate budget: 55% voting, 45% program synthesis
-        vote_budget = time_budget * 0.55
-        prog_budget = time_budget * 0.45
+        # Allocate budget: 70% voting, 30% program synthesis
+        vote_budget = time_budget * 0.70
+        prog_budget = time_budget * 0.30
 
-        n_attempts = max(1, min(5, int(vote_budget / 7)))
+        n_attempts = max(1, min(5, int(vote_budget / 10)))
 
         # Strategy 1: Direct solving with voting
         result = self._solve_with_voting(
@@ -131,7 +131,9 @@ class LLMEngine:
         expected_dims = infer_output_dims(train_examples, test_input)
 
         for attempt in range(n_attempts):
-            if time.time() - start > time_budget * 0.7:
+            elapsed = time.time() - start
+            remaining = time_budget - elapsed
+            if remaining < 5:
                 break
 
             temp = 0.3 + (attempt * 0.15)
@@ -145,7 +147,8 @@ class LLMEngine:
                         {"role": "user", "content": prompt},
                     ],
                     temperature=temp,
-                    max_tokens=6000,
+                    max_tokens=2048,
+                    timeout=min(remaining - 2, 90),
                 )
                 content = response.choices[0].message.content
                 grid = _parse_grid_response(content)
@@ -186,7 +189,9 @@ class LLMEngine:
         n_attempts = max(1, min(3, int(time_budget / 12)))
 
         for attempt in range(n_attempts):
-            if time.time() - start > time_budget * 0.85:
+            elapsed = time.time() - start
+            remaining = time_budget - elapsed
+            if remaining < 5:
                 break
 
             temp = 0.1 + (attempt * 0.2)
@@ -204,7 +209,8 @@ class LLMEngine:
                         {"role": "user", "content": prompt},
                     ],
                     temperature=temp,
-                    max_tokens=6000,
+                    max_tokens=4096,
+                    timeout=min(remaining - 2, 90),
                 )
                 content = response.choices[0].message.content
                 code = _extract_code(content)
@@ -236,7 +242,9 @@ class LLMEngine:
         start = time.time()
 
         for attempt in range(n_attempts):
-            if time.time() - start > time_budget * 0.7:
+            elapsed = time.time() - start
+            remaining = time_budget - elapsed
+            if remaining < 5:
                 break
             try:
                 response = self.client.chat.completions.create(
@@ -246,7 +254,8 @@ class LLMEngine:
                         {"role": "user", "content": prompt},
                     ],
                     temperature=0.3 + attempt * 0.15,
-                    max_tokens=4000,
+                    max_tokens=2048,
+                    timeout=min(remaining - 2, 90),
                 )
                 grid = _parse_grid_response(response.choices[0].message.content)
                 if grid is not None and is_valid(grid):
@@ -401,10 +410,9 @@ def _build_prompt(
         parts.append(f"## Training Example {i}")
         parts.append(f"Input ({ih}x{iw}):")
         parts.append(f"```\n{_grid_to_visual(inp)}\n```")
-        parts.append(f"JSON: {json.dumps(inp)}")
         parts.append(f"Output ({oh}x{ow}):")
         parts.append(f"```\n{_grid_to_visual(out)}\n```")
-        parts.append(f"JSON: {json.dumps(out)}\n")
+        parts.append("")
 
     th, tw = dims(test_input)
     parts.append(f"## Test Input ({th}x{tw})")
@@ -470,14 +478,11 @@ def _build_program_synthesis_prompt_detailed(
         ih, iw = dims(inp)
         oh, ow = dims(out)
         parts.append(f"## Example {i} ({ih}x{iw} → {oh}x{ow})")
-        parts.append(f"Input:\n```\n{_grid_to_visual(inp)}\n```")
-        parts.append(f"Output:\n```\n{_grid_to_visual(out)}\n```")
-        parts.append(f"Input JSON: {json.dumps(inp)}")
-        parts.append(f"Output JSON: {json.dumps(out)}\n")
+        parts.append(f"Input: {json.dumps(inp)}")
+        parts.append(f"Output: {json.dumps(out)}\n")
 
     th, tw = dims(test_input)
     parts.append(f"## Test Input ({th}x{tw})")
-    parts.append(f"```\n{_grid_to_visual(test_input)}\n```")
     parts.append(f"JSON: {json.dumps(test_input)}\n")
 
     parts.append("First describe the transformation in a comment, then write `solve(input_grid)` that works for ALL examples.")
