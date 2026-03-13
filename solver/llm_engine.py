@@ -90,25 +90,22 @@ class LLMEngine:
 
         start = time.time()
 
-        # Allocate budget: 70% voting, 30% program synthesis
-        vote_budget = time_budget * 0.70
-        prog_budget = time_budget * 0.30
-
-        n_attempts = max(1, min(5, int(vote_budget / 10)))
-
-        # Strategy 1: Direct solving with voting
-        result = self._solve_with_voting(
-            train_examples, test_input, n_attempts, vote_budget,
-            chain_hints=chain_hints,
-        )
+        # Strategy 1: Program synthesis FIRST (more reliable for exact match)
+        # Code that passes all training examples is virtually guaranteed correct
+        prog_budget = time_budget * 0.55
+        result = self._solve_with_program(train_examples, test_input, prog_budget)
         if result is not None:
             return result
 
         remaining = time_budget - (time.time() - start)
 
-        # Strategy 2: Program synthesis (multiple attempts with different prompts)
-        if remaining > 10:
-            result = self._solve_with_program(train_examples, test_input, remaining)
+        # Strategy 2: Direct solving with voting (fallback)
+        if remaining > 8:
+            n_attempts = max(1, min(3, int(remaining / 12)))
+            result = self._solve_with_voting(
+                train_examples, test_input, n_attempts, remaining,
+                chain_hints=chain_hints,
+            )
             if result is not None:
                 return result
 
@@ -186,7 +183,13 @@ class LLMEngine:
     ) -> Optional[Grid]:
         """Ask LLM to write a Python function, with multiple attempts."""
         start = time.time()
-        n_attempts = max(1, min(3, int(time_budget / 12)))
+        n_attempts = max(1, min(5, int(time_budget / 10)))
+
+        prompt_builders = [
+            _build_program_synthesis_prompt,
+            _build_program_synthesis_prompt_detailed,
+            _build_chain_decomposition_prompt,
+        ]
 
         for attempt in range(n_attempts):
             elapsed = time.time() - start
@@ -194,12 +197,8 @@ class LLMEngine:
             if remaining < 5:
                 break
 
-            temp = 0.1 + (attempt * 0.2)
-            # Alternate between standard and detailed prompting
-            if attempt % 2 == 0:
-                prompt = _build_program_synthesis_prompt(train_examples, test_input)
-            else:
-                prompt = _build_program_synthesis_prompt_detailed(train_examples, test_input)
+            temp = 0.1 + (attempt * 0.15)
+            prompt = prompt_builders[attempt % len(prompt_builders)](train_examples, test_input)
 
             try:
                 response = self.client.chat.completions.create(
@@ -487,6 +486,58 @@ def _build_program_synthesis_prompt_detailed(
 
     parts.append("First describe the transformation in a comment, then write `solve(input_grid)` that works for ALL examples.")
     parts.append("Common patterns: rotation, flipping, zooming, color swaps, gravity, object extraction.")
+
+    return "\n".join(parts)
+
+
+def _build_chain_decomposition_prompt(
+    train_examples: List[Dict],
+    test_input: Grid,
+) -> str:
+    """Prompt that tells the LLM about chained transforms (ARC-AGI-2 specific)."""
+    parts = []
+    analysis = _analyze_problem(train_examples, test_input)
+
+    parts.append("""# ARC-AGI-2 Chain Decomposition
+
+This is an ARC-AGI-2 puzzle. The transformation is a CHAIN of 3-7 simple operations applied one after another.
+
+IMPORTANT: Break the problem into individual steps. Each step is one of these operations:
+- rotate_90, rotate_180, rotate_270 (rotate the entire grid)
+- flip_horizontal (reverse each row), flip_vertical (reverse row order)
+- transpose (swap rows and columns)
+- zoom_2x (each pixel becomes 2x2 block), zoom_3x (each pixel becomes 3x3 block)
+- swap_colors(a, b) (swap two colors everywhere)
+- remove_color(c) (replace color c with black/0)
+- highlight_color(c) (keep only color c, everything else becomes gray/5)
+- gravity_down/up/left/right (push non-black cells to one side)
+- shift(direction, amount) (shift grid content)
+- recenter (center the non-black content)
+
+APPROACH:
+1. Look at how dimensions change between input and output
+2. Look at how colors change
+3. Identify each operation in sequence
+4. Write `solve(input_grid)` that applies them in order
+""")
+
+    if analysis:
+        parts.append(f"Observations: {analysis}\n")
+
+    for i, ex in enumerate(train_examples, 1):
+        inp = ex["input"]
+        out = ex["output"]
+        ih, iw = dims(inp)
+        oh, ow = dims(out)
+        parts.append(f"## Example {i} ({ih}x{iw} → {oh}x{ow})")
+        parts.append(f"Input: {json.dumps(inp)}")
+        parts.append(f"Output: {json.dumps(out)}\n")
+
+    th, tw = dims(test_input)
+    parts.append(f"## Test Input ({th}x{tw})")
+    parts.append(f"JSON: {json.dumps(test_input)}\n")
+
+    parts.append("Write `solve(input_grid)` as a chain of simple operations. Test it mentally against all examples.")
 
     return "\n".join(parts)
 
