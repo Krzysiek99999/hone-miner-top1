@@ -36,12 +36,17 @@ def try_direct_transforms(
     train_inputs: List[Grid],
     train_outputs: List[Grid],
     test_input: Grid,
+    include_chain_search: bool = True,
 ) -> Optional[Grid]:
     """
     Check if the FULL input→output mapping is a single known transform
     or a short chain of parameterless transforms.
 
     Only returns a result if confident (verified on ALL training examples).
+
+    Args:
+        include_chain_search: If True, run depth 3-5 chain DFS. Set to False
+            when called from within wrapping strategies to avoid O(N^2) explosion.
     """
     if not train_inputs or not train_outputs:
         return None
@@ -69,10 +74,12 @@ def try_direct_transforms(
     if result is not None:
         return result
 
-    # Try chains of 3-5 parameterless transforms (dimension-filtered, fast)
-    result = _try_chain_n(train_inputs, train_outputs, test_input, max_depth=5)
-    if result is not None:
-        return result
+    # Try chains of 3-5 parameterless transforms (dimension-filtered, time-limited)
+    # Only at top level — wrapping strategies call this 100+ times, chain DFS is too expensive
+    if include_chain_search:
+        result = _try_chain_n(train_inputs, train_outputs, test_input, max_depth=5)
+        if result is not None:
+            return result
 
     return None
 
@@ -123,7 +130,7 @@ def try_zoom_wrapped_transforms(
         if stripped is None:
             continue
 
-        inner_result = try_direct_transforms(train_inputs, stripped, test_input)
+        inner_result = try_direct_transforms(train_inputs, stripped, test_input, include_chain_search=False)
         if inner_result is not None:
             final = apply_fn(inner_result)
             if is_valid(final):
@@ -133,7 +140,7 @@ def try_zoom_wrapped_transforms(
         if zoom_name == "zoom_2x":
             stripped2 = _try_strip_zoom_2x(stripped)
             if stripped2 is not None:
-                inner = try_direct_transforms(train_inputs, stripped2, test_input)
+                inner = try_direct_transforms(train_inputs, stripped2, test_input, include_chain_search=False)
                 if inner is not None:
                     final = apply_fn(apply_fn(inner))
                     if is_valid(final):
@@ -203,7 +210,7 @@ def try_zoom_wrapped_transforms(
         if not all(is_valid(s) for s in stripped):
             continue
 
-        inner = try_direct_transforms(train_inputs, stripped, test_input)
+        inner = try_direct_transforms(train_inputs, stripped, test_input, include_chain_search=False)
         if inner is not None:
             final = apply_fn(inner)
             if is_valid(final):
@@ -247,7 +254,7 @@ def try_zoom_wrapped_transforms(
             if not all(is_valid(s) for s in inner_stripped):
                 continue
 
-            inner = try_direct_transforms(train_inputs, inner_stripped, test_input)
+            inner = try_direct_transforms(train_inputs, inner_stripped, test_input, include_chain_search=False)
             if inner is not None:
                 # Re-apply: inner first, then outer
                 mid = inner_apply(inner)
@@ -393,7 +400,7 @@ def _try_swap_colors_outer_wrapper(
                 continue
 
             # Try to solve the inner problem
-            inner = try_direct_transforms(train_inputs, stripped, test_input)
+            inner = try_direct_transforms(train_inputs, stripped, test_input, include_chain_search=False)
             if inner is not None:
                 # Re-apply swap_colors (self-inverse)
                 final = T.swap_colors(inner, params)
