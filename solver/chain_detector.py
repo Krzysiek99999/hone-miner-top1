@@ -68,6 +68,11 @@ def try_direct_transforms(
     if result is not None:
         return result
 
+    # Try chains of 3-4 parameterless transforms (dimension-filtered, fast)
+    result = _try_chain_n(train_inputs, train_outputs, test_input, max_depth=4)
+    if result is not None:
+        return result
+
     return None
 
 
@@ -568,62 +573,82 @@ def _try_single_transforms(inputs, outputs, test_input):
     return None
 
 
-def _try_triple_transforms(inputs, outputs, test_input):
-    """Try triples of parameterless transforms (covers chain_len=3)."""
+def _get_dims_after(h, w, name):
+    """Get output dimensions for a transform without applying it."""
+    if name in ("rotate_90", "rotate_270", "transpose",
+                "flip_diagonal", "flip_antidiagonal"):
+        return (w, h)
+    if name == "zoom_2x":
+        return (h * 2, w * 2)
+    if name == "zoom_3x":
+        return (h * 3, w * 3)
+    if name == "downsample_2x":
+        return (h // 2, w // 2)
+    return (h, w)
+
+
+def _try_chain_n(inputs, outputs, test_input, max_depth=4):
+    """Try chains of N parameterless transforms with dimension filtering.
+
+    Uses dimension pre-filtering to eliminate >95% of combinations instantly.
+    Only computes actual transforms for dimension-compatible chains.
+    """
     if not inputs or not outputs:
         return None
 
     inp0, out0 = inputs[0], outputs[0]
+    ih, iw = dims(inp0)
     oh, ow = dims(out0)
 
-    # Use a focused subset to keep runtime manageable
-    # Skip size-changing transforms in the middle to reduce combinatorial explosion
-    fast_transforms = [
-        "rotate_90", "rotate_180", "rotate_270",
-        "flip_horizontal", "flip_vertical",
-        "transpose",
-        "gravity_down", "gravity_up", "gravity_left", "gravity_right",
-        "recenter",
-    ]
-    all_with_scale = fast_transforms + ["zoom_2x", "zoom_3x", "downsample_2x"]
+    names = sorted(T.PARAMETERLESS)
+    funcs = {n: T.ALL_TRANSFORMS[n] for n in names}
 
-    for n1 in all_with_scale:
-        f1 = T.ALL_TRANSFORMS[n1]
-        try:
-            mid1_0 = f1(inp0)
-        except Exception:
-            continue
+    # Build dimension-filtered chains using DFS
+    def search(depth, target_depth, cur_h, cur_w, chain):
+        if depth == target_depth:
+            if (cur_h, cur_w) != (oh, ow):
+                return None
+            # Apply chain to first example
+            result = inp0
+            for n in chain:
+                result = funcs[n](result)
+            if not grids_equal(result, out0):
+                return None
+            # Verify on ALL examples
+            for inp, out in zip(inputs, outputs):
+                r = inp
+                for n in chain:
+                    r = funcs[n](r)
+                if not grids_equal(r, out):
+                    return None
+            # Apply to test
+            r = test_input
+            for n in chain:
+                r = funcs[n](r)
+            if is_valid(r):
+                return r
+            return None
 
-        for n2 in fast_transforms:
-            f2 = T.ALL_TRANSFORMS[n2]
-            try:
-                mid2_0 = f2(mid1_0)
-            except Exception:
+        for n in names:
+            nh, nw = _get_dims_after(cur_h, cur_w, n)
+            # Prune: remaining steps can at most change dims by known factors
+            # Skip if dimensions are already too large
+            if nh > oh * 3 or nw > ow * 3:
                 continue
+            if nh < 1 or nw < 1:
+                continue
+            chain.append(n)
+            result = search(depth + 1, target_depth, nh, nw, chain)
+            if result is not None:
+                return result
+            chain.pop()
+        return None
 
-            for n3 in all_with_scale:
-                f3 = T.ALL_TRANSFORMS[n3]
-                try:
-                    cand = f3(mid2_0)
-                except Exception:
-                    continue
-
-                if dims(cand) != (oh, ow):
-                    continue
-                if not grids_equal(cand, out0):
-                    continue
-
-                # Verify on ALL examples
-                try:
-                    if all(
-                        grids_equal(f3(f2(f1(inp))), out)
-                        for inp, out in zip(inputs, outputs)
-                    ):
-                        result = f3(f2(f1(test_input)))
-                        if is_valid(result):
-                            return result
-                except Exception:
-                    continue
+    # Try depth 3, then depth 4
+    for depth in range(3, max_depth + 1):
+        result = search(0, depth, ih, iw, [])
+        if result is not None:
+            return result
 
     return None
 
