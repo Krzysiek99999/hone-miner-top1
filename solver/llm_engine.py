@@ -92,7 +92,7 @@ class LLMEngine:
 
         # Strategy 1: Program synthesis FIRST (more reliable for exact match)
         # Code that passes all training examples is virtually guaranteed correct
-        prog_budget = time_budget * 0.55
+        prog_budget = time_budget * 0.65
         result = self._solve_with_program(train_examples, test_input, prog_budget)
         if result is not None:
             return result
@@ -145,7 +145,7 @@ class LLMEngine:
                     ],
                     temperature=temp,
                     max_tokens=2048,
-                    timeout=min(remaining - 2, 90),
+                    timeout=min(remaining - 1, 90),
                 )
                 content = response.choices[0].message.content
                 grid = _parse_grid_response(content)
@@ -181,9 +181,8 @@ class LLMEngine:
         test_input: Grid,
         time_budget: float,
     ) -> Optional[Grid]:
-        """Ask LLM to write a Python function, with multiple attempts."""
+        """Ask LLM to write a Python function, with adaptive attempts."""
         start = time.time()
-        n_attempts = max(1, min(5, int(time_budget / 10)))
 
         prompt_builders = [
             _build_program_synthesis_prompt,
@@ -191,9 +190,10 @@ class LLMEngine:
             _build_chain_decomposition_prompt,
         ]
 
-        for attempt in range(n_attempts):
-            elapsed = time.time() - start
-            remaining = time_budget - elapsed
+        attempt = 0
+        max_attempts = 5
+        while attempt < max_attempts:
+            remaining = time_budget - (time.time() - start)
             if remaining < 5:
                 break
 
@@ -209,18 +209,18 @@ class LLMEngine:
                     ],
                     temperature=temp,
                     max_tokens=2048,
-                    timeout=min(remaining - 2, 90),
+                    timeout=min(remaining - 1, 90),
                 )
                 content = response.choices[0].message.content
                 code = _extract_code(content)
-                if not code:
-                    continue
-
-                result = _execute_solver_code(code, train_examples, test_input)
-                if result is not None and is_valid(result):
-                    return result
+                if code:
+                    result = _execute_solver_code(code, train_examples, test_input)
+                    if result is not None and is_valid(result):
+                        return result
             except Exception as e:
                 print(f"    [LLM] Program synthesis attempt {attempt+1} failed: {e}")
+
+            attempt += 1
 
         return None
 
@@ -562,6 +562,31 @@ def gravity_right(g):
         for j in range(w-1,-1,-1):
             if g[i][j]!=0: r[i][wp]=g[i][j]; wp-=1
     return r
+def flip_antidiagonal(g):
+    return rotate_90(flip_vertical(g))
+def downsample_2x(g):
+    h,w=len(g),len(g[0]); return [[g[r*2][c*2] for c in range(w//2)] for r in range(h//2)]
+def shift(g,direction,amount):
+    h,w=len(g),len(g[0]); r=[[0]*w for _ in range(h)]
+    if direction=="up":
+        for i in range(amount,h): r[i-amount]=g[i][:]
+    elif direction=="down":
+        for i in range(h-amount): r[i+amount]=g[i][:]
+    elif direction=="left":
+        for i in range(h): r[i][:w-amount]=g[i][amount:]
+    elif direction=="right":
+        for i in range(h): r[i][amount:]=g[i][:w-amount]
+    return r
+def recenter(g):
+    h,w=len(g),len(g[0]); mr,Mr,mc,Mc=h,-1,w,-1
+    for i in range(h):
+        for j in range(w):
+            if g[i][j]!=0: mr=min(mr,i);Mr=max(Mr,i);mc=min(mc,j);Mc=max(Mc,j)
+    if Mr<0: return g
+    ch,cw=Mr-mr+1,Mc-mc+1; r=[[0]*w for _ in range(h)]; sr=(h-ch)//2; sc=(w-cw)//2
+    for i in range(ch):
+        for j in range(cw): r[sr+i][sc+j]=g[mr+i][mc+j]
+    return r
 
 Write solve(input_grid) by composing these. Example:
 def solve(input_grid):
@@ -815,6 +840,10 @@ def _safe_builtins():
         'ord', 'pow', 'print', 'range', 'repr', 'reversed', 'round', 'set',
         'slice', 'sorted', 'str', 'sum', 'tuple', 'type', 'zip',
         'True', 'False', 'None',
+        # Exception types (needed for try/except in LLM-generated code)
+        'ValueError', 'TypeError', 'IndexError', 'KeyError',
+        'StopIteration', 'Exception', 'ZeroDivisionError',
+        'RuntimeError', 'AttributeError',
     ]
     for name in allowed:
         if hasattr(builtins, name):

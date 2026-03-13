@@ -68,8 +68,8 @@ def try_direct_transforms(
     if result is not None:
         return result
 
-    # Try chains of 3-4 parameterless transforms (dimension-filtered, fast)
-    result = _try_chain_n(train_inputs, train_outputs, test_input, max_depth=4)
+    # Try chains of 3-5 parameterless transforms (dimension-filtered, fast)
+    result = _try_chain_n(train_inputs, train_outputs, test_input, max_depth=5)
     if result is not None:
         return result
 
@@ -587,11 +587,24 @@ def _get_dims_after(h, w, name):
     return (h, w)
 
 
-def _try_chain_n(inputs, outputs, test_input, max_depth=4):
+
+# Only transforms that actually appear in Hone chains (TRANSFORMATIONS registry).
+# Excludes: rotate_90, flip_horizontal, flip_vertical (not in registry, helper-only)
+# Excludes: flip_diagonal (identical to transpose — flip_diagonal() just calls transpose())
+_CHAIN_TRANSFORMS = sorted([
+    "rotate_180", "rotate_270", "transpose",
+    "flip_antidiagonal", "recenter",
+    "zoom_2x", "zoom_3x", "downsample_2x",
+    "gravity_down", "gravity_up", "gravity_left", "gravity_right",
+])
+
+
+def _try_chain_n(inputs, outputs, test_input, max_depth=5):
     """Try chains of N parameterless transforms with dimension filtering.
 
     Uses dimension pre-filtering to eliminate >95% of combinations instantly.
     Only computes actual transforms for dimension-compatible chains.
+    Accumulates transform results through DFS to avoid re-applying full chain at leaves.
     """
     if not inputs or not outputs:
         return None
@@ -600,22 +613,19 @@ def _try_chain_n(inputs, outputs, test_input, max_depth=4):
     ih, iw = dims(inp0)
     oh, ow = dims(out0)
 
-    names = sorted(T.PARAMETERLESS)
+    names = _CHAIN_TRANSFORMS
     funcs = {n: T.ALL_TRANSFORMS[n] for n in names}
 
-    # Build dimension-filtered chains using DFS
-    def search(depth, target_depth, cur_h, cur_w, chain):
+    # Build dimension-filtered chains using DFS with accumulation
+    def search(depth, target_depth, cur_h, cur_w, chain, accumulated):
         if depth == target_depth:
             if (cur_h, cur_w) != (oh, ow):
                 return None
-            # Apply chain to first example
-            result = inp0
-            for n in chain:
-                result = funcs[n](result)
-            if not grids_equal(result, out0):
+            # accumulated already has chain applied to inp0
+            if not grids_equal(accumulated, out0):
                 return None
-            # Verify on ALL examples
-            for inp, out in zip(inputs, outputs):
+            # Verify on ALL other examples
+            for inp, out in zip(inputs[1:], outputs[1:]):
                 r = inp
                 for n in chain:
                     r = funcs[n](r)
@@ -638,15 +648,16 @@ def _try_chain_n(inputs, outputs, test_input, max_depth=4):
             if nh < 1 or nw < 1:
                 continue
             chain.append(n)
-            result = search(depth + 1, target_depth, nh, nw, chain)
+            new_acc = funcs[n](accumulated)
+            result = search(depth + 1, target_depth, nh, nw, chain, new_acc)
             if result is not None:
                 return result
             chain.pop()
         return None
 
-    # Try depth 3, then depth 4
+    # Try depth 3, then 4, then 5
     for depth in range(3, max_depth + 1):
-        result = search(0, depth, ih, iw, [])
+        result = search(0, depth, ih, iw, [], inp0)
         if result is not None:
             return result
 
