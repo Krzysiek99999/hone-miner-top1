@@ -92,7 +92,7 @@ class LLMEngine:
 
         # Strategy 1: Program synthesis FIRST (more reliable for exact match)
         # Code that passes all training examples is virtually guaranteed correct
-        prog_budget = time_budget * 0.65
+        prog_budget = time_budget * 0.50
         result = self._solve_with_program(train_examples, test_input, prog_budget)
         if result is not None:
             return result
@@ -145,7 +145,7 @@ class LLMEngine:
                     ],
                     temperature=temp,
                     max_tokens=2048,
-                    timeout=min(remaining - 1, 90),
+                    timeout=min(remaining - 1, 45),
                 )
                 content = response.choices[0].message.content
                 grid = _parse_grid_response(content)
@@ -191,7 +191,7 @@ class LLMEngine:
         ]
 
         attempt = 0
-        max_attempts = 5
+        max_attempts = 3
         while attempt < max_attempts:
             remaining = time_budget - (time.time() - start)
             if remaining < 5:
@@ -209,7 +209,7 @@ class LLMEngine:
                     ],
                     temperature=temp,
                     max_tokens=2048,
-                    timeout=min(remaining - 1, 90),
+                    timeout=min(remaining - 1, 45),
                 )
                 content = response.choices[0].message.content
                 code = _extract_code(content)

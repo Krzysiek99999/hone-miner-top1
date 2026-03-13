@@ -607,7 +607,7 @@ _CHAIN_TRANSFORMS = sorted([
 ])
 
 
-def _try_chain_n(inputs, outputs, test_input, max_depth=5, time_limit=5.0):
+def _try_chain_n(inputs, outputs, test_input, max_depth=5, time_limit=2.0):
     """Try chains of N parameterless transforms with dimension filtering.
 
     Uses dimension pre-filtering to eliminate >95% of combinations instantly.
