@@ -101,7 +101,7 @@ class LLMEngine:
 
         # Strategy 2: Direct solving with voting (fallback)
         if remaining > 8:
-            n_attempts = max(1, min(3, int(remaining / 12)))
+            n_attempts = max(1, min(3, int(remaining / 8)))
             result = self._solve_with_voting(
                 train_examples, test_input, n_attempts, remaining,
                 chain_hints=chain_hints,
@@ -209,7 +209,7 @@ class LLMEngine:
                     ],
                     temperature=temp,
                     max_tokens=2048,
-                    timeout=min(remaining - 1, 45),
+                    timeout=min(remaining - 1, time_budget / max_attempts, 45),
                 )
                 content = response.choices[0].message.content
                 code = _extract_code(content)
@@ -266,7 +266,10 @@ class LLMEngine:
             return None
 
         grid_strs = [json.dumps(g) for g in candidates]
-        return json.loads(Counter(grid_strs).most_common(1)[0][0])
+        most_common_str, most_common_count = Counter(grid_strs).most_common(1)[0]
+        if most_common_count > 1:
+            return json.loads(most_common_str)
+        return None
 
 
 # ============= PROMPTS =============
