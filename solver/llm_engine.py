@@ -209,7 +209,7 @@ class LLMEngine:
                     ],
                     temperature=temp,
                     max_tokens=2048,
-                    timeout=min(remaining - 1, time_budget / max_attempts, 45),
+                    timeout=min(remaining - 1, 45),
                 )
                 content = response.choices[0].message.content
                 code = _extract_code(content)
