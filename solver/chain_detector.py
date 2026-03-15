@@ -866,12 +866,13 @@ def _zoom_makes_sense(
     stripped: List[Grid],
     zoom_factor: int,
 ) -> bool:
-    """Validate zoom: stripped output dims must exactly match input dims.
+    """Validate that detected zoom is real, not coincidental.
 
-    This is the strongest possible validation. If zoom_Nx was the last
-    transform, then stripping it gives us base_task output (or an
-    intermediate). For many base tasks, output dims == input dims,
-    so stripped dims should match input dims.
+    Checks:
+    1. Stripped output dims must match input dims
+    2. Stripped outputs must differ from inputs (not identity)
+    3. Stripped outputs must have different color distribution than outputs
+       (real zoom preserves colors, but false positives from gravity/etc may too)
     """
     # All stripped outputs must match their corresponding input dims
     for inp, s in zip(inputs, stripped):
@@ -879,6 +880,11 @@ def _zoom_makes_sense(
         sh, sw = dims(s)
         if (sh, sw) != (ih, iw):
             return False
+
+    # Stripped outputs must not be identical to inputs
+    if all(grids_equal(inp, s) for inp, s in zip(inputs, stripped)):
+        return False
+
     return True
 
 

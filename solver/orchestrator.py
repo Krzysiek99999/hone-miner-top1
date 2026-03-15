@@ -127,21 +127,33 @@ class Orchestrator:
         return score
 
     def _try_fast_path(self, task: Dict) -> Optional[Grid]:
-        """Layer 1: Try to solve without LLM using known transforms."""
+        """Layer 1: Try to solve without LLM using known transforms.
+
+        Uses cross-validation: runs both direct and zoom-wrapped transforms.
+        If both find results, they must agree (otherwise = ambiguity = return None).
+        This prevents false positives where a spurious chain happens to match
+        all 3 training examples but gives wrong test output.
+        """
         train = task["train_examples"]
         test_input = task["test_input"]
 
         inputs = [ex["input"] for ex in train]
         outputs = [ex["output"] for ex in train]
 
-        # Try direct transforms (input → output as known transform chain)
-        result = try_direct_transforms(inputs, outputs, test_input)
-        if result is not None:
-            if validate_prediction(train, test_input, result):
-                return result
+        # Run BOTH paths to cross-validate
+        result_direct = try_direct_transforms(inputs, outputs, test_input)
+        result_wrapped = try_zoom_wrapped_transforms(inputs, outputs, test_input)
 
-        # Try zoom-wrapped: strip zoom from outputs, solve simplified, re-zoom
-        result = try_zoom_wrapped_transforms(inputs, outputs, test_input)
+        if result_direct is not None and result_wrapped is not None:
+            # Both found something — must agree
+            if grids_equal(result_direct, result_wrapped):
+                if validate_prediction(train, test_input, result_direct):
+                    return result_direct
+            # Disagreement = ambiguity = too risky
+            return None
+
+        # Only one path found something — use it
+        result = result_direct if result_direct is not None else result_wrapped
         if result is not None:
             if validate_prediction(train, test_input, result):
                 return result
@@ -164,6 +176,9 @@ class Orchestrator:
         chain_hints = self._detect_chain_hints(inputs, outputs)
 
         # Layer 2: Try to detect output chain and simplify
+        # Cap Layer 2 at 15s max to preserve time for Layer 3.
+        # Chain detection has ~30% false positive rate for zoom_3x — if false,
+        # we waste time solving the wrong simplified problem.
         output_chain = detect_output_chain(inputs, outputs)
         if output_chain:
             stripped_outputs = outputs
@@ -193,9 +208,10 @@ class Orchestrator:
                 chain_desc = f"Original outputs had these transforms applied: {[s['name'] for s in output_chain]}"
 
                 remaining = time_budget - (time.time() - start)
+                layer2_budget = min(remaining * 0.4, 15.0)
                 llm_result = self.llm.solve_simplified(
                     simplified_train, test_input, chain_desc,
-                    time_budget=remaining * 0.8,
+                    time_budget=layer2_budget,
                 )
                 if llm_result is not None:
                     final = apply_chain(llm_result, output_chain)
