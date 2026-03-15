@@ -62,13 +62,14 @@ def generate_test_problems(count: int, seed: int = 42):
 
 
 def test_layer1_direct_transforms(problems, verbose=False):
-    """Test Layer 1: direct transform detection only (no wrapping).
+    """Test Layer 1: direct transform detection with cross-validation.
 
-    Matches orchestrator: only try_direct_transforms in fast path.
-    Wrapping strategies excluded — higher false positive rate (tested 1700 problems).
+    Matches orchestrator logic: runs both direct and zoom-wrapped transforms.
+    If both find results, they must agree (otherwise = ambiguity = None).
     """
     correct = 0
     attempted = 0
+    rejected = 0
     total = len(problems)
 
     for i, prob in enumerate(problems):
@@ -81,7 +82,25 @@ def test_layer1_direct_transforms(problems, verbose=False):
         outputs = [ex["output"] for ex in train]
 
         t0 = time.time()
-        result = try_direct_transforms(inputs, outputs, test_input)
+
+        # Cross-validation: run BOTH paths (same as orchestrator)
+        result_direct = try_direct_transforms(inputs, outputs, test_input)
+        result_wrapped = try_zoom_wrapped_transforms(inputs, outputs, test_input)
+
+        result = None
+        if result_direct is not None and result_wrapped is not None:
+            if grids_equal(result_direct, result_wrapped):
+                result = result_direct
+            else:
+                rejected += 1
+                if verbose:
+                    chain = metadata.get("transformation_chain", [])
+                    names = [s["name"] for s in chain]
+                    was_correct = grids_equal(result_direct, test_output) or grids_equal(result_wrapped, test_output)
+                    print(f"  [{i+1}] REJECTED (ambiguity, would_have_been={'CORRECT' if was_correct else 'WRONG'}) chain={names}")
+        else:
+            result = result_direct if result_direct is not None else result_wrapped
+
         dt = time.time() - t0
 
         if result is not None:
@@ -91,12 +110,14 @@ def test_layer1_direct_transforms(problems, verbose=False):
                 if verbose:
                     chain = metadata.get("transformation_chain", [])
                     names = [s["name"] for s in chain]
-                    print(f"  [{i+1}] CORRECT ({dt:.3f}s) chain={names}")
+                    src = "direct" if result_direct is not None else "wrapped"
+                    print(f"  [{i+1}] CORRECT ({dt:.3f}s, {src}) chain={names}")
             else:
                 if verbose:
                     chain = metadata.get("transformation_chain", [])
                     names = [s["name"] for s in chain]
-                    print(f"  [{i+1}] WRONG ({dt:.3f}s) chain={names}")
+                    src = "direct" if result_direct is not None else "wrapped"
+                    print(f"  [{i+1}] WRONG ({dt:.3f}s, {src}) chain={names}")
         else:
             if verbose and i < 20:
                 chain = metadata.get("transformation_chain", [])
@@ -104,7 +125,7 @@ def test_layer1_direct_transforms(problems, verbose=False):
                 names = [s["name"] for s in chain]
                 print(f"  [{i+1}] SKIP (base={base}, chain={names})")
 
-    return correct, attempted, total
+    return correct, attempted, total, rejected
 
 
 def test_output_chain_detection(problems, verbose=False):
@@ -150,11 +171,13 @@ def main():
     print("=" * 50)
     print("LAYER 1: Direct Transform Detection")
     print("=" * 50)
-    correct, attempted, total = test_layer1_direct_transforms(problems, args.verbose)
+    correct, attempted, total, rejected = test_layer1_direct_transforms(problems, args.verbose)
     print(f"\nResults: {correct}/{attempted} correct out of {attempted} attempted ({total} total)")
     if attempted > 0:
         print(f"  Accuracy: {correct/attempted*100:.1f}%")
     print(f"  Coverage: {attempted/total*100:.1f}% of problems")
+    if rejected > 0:
+        print(f"  Rejected (ambiguity): {rejected}")
 
     # Test output chain detection
     print(f"\n{'=' * 50}")

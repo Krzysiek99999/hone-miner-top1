@@ -101,7 +101,7 @@ class LLMEngine:
 
         # Strategy 2: Direct solving with voting (fallback)
         if remaining > 8:
-            n_attempts = max(1, min(3, int(remaining / 8)))
+            n_attempts = max(1, min(5, int(remaining / 8)))
             result = self._solve_with_voting(
                 train_examples, test_input, n_attempts, remaining,
                 chain_hints=chain_hints,
@@ -145,7 +145,7 @@ class LLMEngine:
                     ],
                     temperature=temp,
                     max_tokens=2048,
-                    timeout=min(remaining - 1, 45),
+                    timeout=min(remaining - 1, 35),
                 )
                 content = response.choices[0].message.content
                 grid = _parse_grid_response(content)
@@ -209,7 +209,7 @@ class LLMEngine:
                     ],
                     temperature=temp,
                     max_tokens=2048,
-                    timeout=min(remaining - 1, 45),
+                    timeout=min(remaining - 1, 35),
                 )
                 content = response.choices[0].message.content
                 code = _extract_code(content)
@@ -236,7 +236,7 @@ class LLMEngine:
             return None
 
         prompt = _build_simplified_prompt(train_examples, test_input, chain_description)
-        n_attempts = max(1, min(3, int(time_budget / 8)))
+        n_attempts = max(1, min(5, int(time_budget / 8)))
         candidates = []
         start = time.time()
 

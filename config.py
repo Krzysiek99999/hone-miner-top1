@@ -12,7 +12,7 @@ import os
 #   1xH200: "Qwen/Qwen2.5-32B-Instruct" (~64GB FP16)
 #   2xH200: "Qwen/Qwen2.5-72B-Instruct" (~144GB FP16)
 #   4xH200: "Qwen/Qwen3-235B-A22B" (~470GB FP16, MoE)
-SOLVER_MODEL = os.environ.get("SOLVER_MODEL", "Qwen/Qwen2.5-72B-Instruct")
+SOLVER_MODEL = os.environ.get("SOLVER_MODEL", "Qwen/Qwen3-235B-A22B")
 
 # vLLM connection
 VLLM_API_BASE = os.environ.get("VLLM_API_BASE", "http://vllm-container:8000")
@@ -24,7 +24,7 @@ MODEL_CACHE_DIR = os.environ.get("MODEL_CACHE_DIR", "/app/models")
 VLLM_DTYPE = os.environ.get("VLLM_DTYPE", "auto")
 VLLM_GPU_MEMORY_UTIL = float(os.environ.get("VLLM_GPU_MEMORY_UTIL", "0.90"))
 VLLM_MAX_MODEL_LEN = int(os.environ.get("VLLM_MAX_MODEL_LEN", "32768"))
-WEIGHT_CLASS = os.environ.get("WEIGHT_CLASS", "2xH200")
+WEIGHT_CLASS = os.environ.get("WEIGHT_CLASS", "4xH200")
 
 # ============= SOLVER =============
 # Total time budget for inference phase (seconds)

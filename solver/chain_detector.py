@@ -889,48 +889,22 @@ def _zoom_makes_sense(
 
 
 def _is_valid_zoom_source(grid: Grid) -> bool:
-    """Strict check: is this grid a plausible pre-zoom source?
-    Rejects grids where zoom detection is likely coincidental.
+    """Check if this grid is a plausible pre-zoom source.
+    Minimal checks — _zoom_makes_sense provides the main safety net.
     """
     h, w = dims(grid)
-    total = h * w
-    if total < 9:  # At least 3x3
+    if h < 3 or w < 3:
         return False
 
-    # Count color frequencies
-    freq = {}
+    # Require at least 2 distinct values
+    vals = set()
     for row in grid:
         for v in row:
-            freq[v] = freq.get(v, 0) + 1
+            vals.add(v)
+            if len(vals) >= 2:
+                return True
 
-    # Require at least 3 distinct colors (including black)
-    if len(freq) < 3:
-        return False
-
-    # Non-black cells must be at least 25% of total
-    non_black = total - freq.get(0, 0)
-    if non_black < total * 0.25:
-        return False
-
-    # No single color can dominate more than 60%
-    max_freq = max(freq.values())
-    if max_freq > total * 0.60:
-        return False
-
-    # Count spatial transitions (edges between different-colored cells)
-    edges = 0
-    for r in range(h):
-        for c in range(w):
-            if c + 1 < w and grid[r][c] != grid[r][c + 1]:
-                edges += 1
-            if r + 1 < h and grid[r][c] != grid[r + 1][c]:
-                edges += 1
-
-    max_edges = (h - 1) * w + h * (w - 1)
-    if max_edges > 0 and edges / max_edges < 0.15:
-        return False
-
-    return True
+    return False
 
 
 def _detect_output_zoom_2x(outputs):

@@ -127,12 +127,37 @@ class Orchestrator:
         return score
 
     def _try_fast_path(self, task: Dict) -> Optional[Grid]:
-        """Layer 1: Disabled — DFS transform detection has ~13% false positive rate.
+        """Layer 1: Try to solve without LLM using known transforms.
 
-        Tested 2000 synthetic problems: 20/23 correct, 3 WRONG.
-        Each WRONG inflates the scoring denominator (exact_matches / num_solved).
-        Better to skip fast path entirely and let LLM handle everything.
+        Uses cross-validation: runs both direct and zoom-wrapped transforms.
+        If both find results, they must agree (otherwise = ambiguity = return None).
+        This prevents false positives where a spurious chain happens to match
+        all 3 training examples but gives wrong test output.
         """
+        train = task["train_examples"]
+        test_input = task["test_input"]
+
+        inputs = [ex["input"] for ex in train]
+        outputs = [ex["output"] for ex in train]
+
+        # Run BOTH paths to cross-validate
+        result_direct = try_direct_transforms(inputs, outputs, test_input, include_chain_search=False)
+        result_wrapped = try_zoom_wrapped_transforms(inputs, outputs, test_input)
+
+        if result_direct is not None and result_wrapped is not None:
+            # Both found something — must agree
+            if grids_equal(result_direct, result_wrapped):
+                if validate_prediction(train, test_input, result_direct):
+                    return result_direct
+            # Disagreement = ambiguity = too risky
+            return None
+
+        # Only one path found something — use it
+        result = result_direct if result_direct is not None else result_wrapped
+        if result is not None:
+            if validate_prediction(train, test_input, result):
+                return result
+
         return None
 
     def _try_llm_path(self, task: Dict, time_budget: float) -> Optional[Grid]:
