@@ -127,25 +127,12 @@ class Orchestrator:
         return score
 
     def _try_fast_path(self, task: Dict) -> Optional[Grid]:
-        """Layer 1: Try to solve without LLM using known transforms.
+        """Layer 1: Disabled — DFS transform detection has ~13% false positive rate.
 
-        Only uses direct transform detection (single, double, parameterized,
-        DFS chain search). Wrapping strategies (try_zoom_wrapped_transforms)
-        are excluded from the fast path because they have higher false positive
-        rate — tested 1700 problems, the only false positive came from wrapping.
-        Wrapping-based solving is handled by Layer 2 (chain strip + LLM) instead.
+        Tested 2000 synthetic problems: 20/23 correct, 3 WRONG.
+        Each WRONG inflates the scoring denominator (exact_matches / num_solved).
+        Better to skip fast path entirely and let LLM handle everything.
         """
-        train = task["train_examples"]
-        test_input = task["test_input"]
-
-        inputs = [ex["input"] for ex in train]
-        outputs = [ex["output"] for ex in train]
-
-        result = try_direct_transforms(inputs, outputs, test_input)
-        if result is not None:
-            if validate_prediction(train, test_input, result):
-                return result
-
         return None
 
     def _try_llm_path(self, task: Dict, time_budget: float) -> Optional[Grid]:
