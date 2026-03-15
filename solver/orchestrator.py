@@ -129,10 +129,11 @@ class Orchestrator:
     def _try_fast_path(self, task: Dict) -> Optional[Grid]:
         """Layer 1: Try to solve without LLM using known transforms.
 
-        Uses cross-validation: runs both direct and zoom-wrapped transforms.
-        If both find results, they must agree (otherwise = ambiguity = return None).
-        This prevents false positives where a spurious chain happens to match
-        all 3 training examples but gives wrong test output.
+        Only uses direct transform detection (single, double, parameterized,
+        DFS chain search). Wrapping strategies (try_zoom_wrapped_transforms)
+        are excluded from the fast path because they have higher false positive
+        rate — tested 1700 problems, the only false positive came from wrapping.
+        Wrapping-based solving is handled by Layer 2 (chain strip + LLM) instead.
         """
         train = task["train_examples"]
         test_input = task["test_input"]
@@ -140,20 +141,7 @@ class Orchestrator:
         inputs = [ex["input"] for ex in train]
         outputs = [ex["output"] for ex in train]
 
-        # Run BOTH paths to cross-validate
-        result_direct = try_direct_transforms(inputs, outputs, test_input)
-        result_wrapped = try_zoom_wrapped_transforms(inputs, outputs, test_input)
-
-        if result_direct is not None and result_wrapped is not None:
-            # Both found something — must agree
-            if grids_equal(result_direct, result_wrapped):
-                if validate_prediction(train, test_input, result_direct):
-                    return result_direct
-            # Disagreement = ambiguity = too risky
-            return None
-
-        # Only one path found something — use it
-        result = result_direct if result_direct is not None else result_wrapped
+        result = try_direct_transforms(inputs, outputs, test_input)
         if result is not None:
             if validate_prediction(train, test_input, result):
                 return result
