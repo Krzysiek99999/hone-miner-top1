@@ -17,7 +17,7 @@ ENV HF_HOME=/app/models \
     PIP_NO_CACHE_DIR=1
 
 # Default model — override via SOLVER_MODEL env var
-ENV SOLVER_MODEL="Qwen/Qwen3-235B-A22B"
+ENV SOLVER_MODEL="Qwen/Qwen2.5-72B-Instruct"
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \

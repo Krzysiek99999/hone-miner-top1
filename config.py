@@ -12,7 +12,7 @@ import os
 #   1xH200: "Qwen/Qwen2.5-32B-Instruct" (~64GB FP16)
 #   2xH200: "Qwen/Qwen2.5-72B-Instruct" (~144GB FP16)
 #   4xH200: "Qwen/Qwen3-235B-A22B" (~470GB FP16, MoE)
-SOLVER_MODEL = os.environ.get("SOLVER_MODEL", "Qwen/Qwen3-235B-A22B")
+SOLVER_MODEL = os.environ.get("SOLVER_MODEL", "Qwen/Qwen2.5-72B-Instruct")
 
 # vLLM connection
 VLLM_API_BASE = os.environ.get("VLLM_API_BASE", "http://vllm-container:8000")
