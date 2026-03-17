@@ -24,7 +24,7 @@ MODEL_CACHE_DIR = os.environ.get("MODEL_CACHE_DIR", "/app/models")
 VLLM_DTYPE = os.environ.get("VLLM_DTYPE", "auto")
 VLLM_GPU_MEMORY_UTIL = float(os.environ.get("VLLM_GPU_MEMORY_UTIL", "0.90"))
 VLLM_MAX_MODEL_LEN = int(os.environ.get("VLLM_MAX_MODEL_LEN", "32768"))
-WEIGHT_CLASS = os.environ.get("WEIGHT_CLASS", "4xH200")
+WEIGHT_CLASS = os.environ.get("WEIGHT_CLASS", "2xH200")
 
 # ============= SOLVER =============
 # Total time budget for inference phase (seconds)
