@@ -43,8 +43,8 @@ class LLMEngine:
         api_base = VLLM_API_BASE
         print(f"[LLM] Connecting to vLLM at: {api_base}")
 
-        max_retries = 30
-        retry_interval = 10  # seconds
+        max_retries = 10
+        retry_interval = 5  # seconds
 
         try:
             from openai import OpenAI
