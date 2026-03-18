@@ -141,7 +141,7 @@ class Orchestrator:
         outputs = [ex["output"] for ex in train]
 
         # Run BOTH paths to cross-validate
-        result_direct = try_direct_transforms(inputs, outputs, test_input, include_chain_search=False)
+        result_direct = try_direct_transforms(inputs, outputs, test_input, include_chain_search=True)
         result_wrapped = try_zoom_wrapped_transforms(inputs, outputs, test_input)
 
         if result_direct is not None and result_wrapped is not None:
