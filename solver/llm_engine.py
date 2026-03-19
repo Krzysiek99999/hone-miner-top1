@@ -92,7 +92,7 @@ class LLMEngine:
 
         # Strategy 1: Program synthesis FIRST (more reliable for exact match)
         # Code that passes all training examples is virtually guaranteed correct
-        prog_budget = time_budget * 0.50
+        prog_budget = time_budget * 0.65
         result = self._solve_with_program(train_examples, test_input, prog_budget)
         if result is not None:
             return result
@@ -172,6 +172,14 @@ class LLMEngine:
         if most_common_count > 1:
             return json.loads(most_common_str)
 
+        # Single candidate with correct dimensions — cautiously return it
+        # Scoring = exact_matches / num_solved. Submitting uncertain answers
+        # is risky, but having 0 num_solved gives 0 score.
+        # Only do this if we have exactly 1 dimension-matching candidate.
+        if expected_dims is not None and len(candidates) == 1:
+            if dims(candidates[0]) == expected_dims:
+                return candidates[0]
+
         # No consensus — return None to avoid inflating denominator with wrong answers
         return None
 
@@ -184,14 +192,18 @@ class LLMEngine:
         """Ask LLM to write a Python function, with adaptive attempts."""
         start = time.time()
 
+        # Chain decomposition FIRST — Hone problems ARE chains of known transforms
+        # applied after a base ARC task. Giving the LLM the exact transform code
+        # maximizes the chance it can compose the right solution.
         prompt_builders = [
-            _build_program_synthesis_prompt,
-            _build_program_synthesis_prompt_detailed,
             _build_chain_decomposition_prompt,
+            _build_program_synthesis_prompt_detailed,
+            _build_program_synthesis_prompt,
+            _build_chain_decomposition_prompt,  # retry chain decomposition at higher temp
         ]
 
         attempt = 0
-        max_attempts = 3
+        max_attempts = 4
         while attempt < max_attempts:
             remaining = time_budget - (time.time() - start)
             if remaining < 5:
@@ -305,10 +317,17 @@ PROGRAM_SYNTHESIS_SYSTEM = """You are an expert programmer solving ARC-AGI-2 puz
 
 Write a function `solve(input_grid)` that takes a 2D list of ints (0-9) and returns the output 2D list.
 
+STRUCTURE OF THESE PUZZLES:
+These puzzles have two layers:
+1. A BASE TASK: a core transformation (fill shapes, copy objects, sort by size, extract patterns, etc.)
+2. A POST-PROCESSING CHAIN: simple operations like rotate, flip, zoom, gravity, color swap applied after
+
+Your code should implement the base task logic first, then apply any post-processing transforms.
+
 APPROACH:
 1. Study ALL examples carefully. The same rule applies to each.
 2. Describe the pattern in a comment before coding.
-3. Consider: size changes, color mappings, geometric transforms, object manipulation.
+3. Identify the base task first, then look for post-processing (rotation, zoom, color changes).
 4. Write clean, generalizable code — no hardcoded values from specific examples.
 
 RULES:
@@ -503,9 +522,13 @@ def _build_chain_decomposition_prompt(
 
     parts.append("""# ARC-AGI-2 Chain Decomposition
 
-This puzzle applies a CHAIN of 3-7 simple operations. Identify each and compose them.
+This puzzle has TWO layers:
+1. A BASE TASK: a core pattern transformation (e.g., fill shapes, copy objects, sort colors, extract patterns)
+2. A POST-PROCESSING CHAIN: 3-7 simple operations applied AFTER the base task
 
-Here are ALL possible operations (use these exact implementations in your solve function):
+Your solve(input_grid) function should FIRST implement the base task logic, THEN apply the chain operations.
+
+Here are ALL possible chain operations (use these exact implementations in your solve function):
 
 def rotate_90(g):
     h,w=len(g),len(g[0]); return [[g[h-1-j][i] for j in range(h)] for i in range(w)]
@@ -591,12 +614,17 @@ def recenter(g):
         for j in range(cw): r[sr+i][sc+j]=g[mr+i][mc+j]
     return r
 
-Write solve(input_grid) by composing these. Example:
+Write solve(input_grid) that first applies the base task logic, then composes chain operations. Example:
 def solve(input_grid):
-    x = rotate_90(input_grid)
-    x = swap_colors(x, 1, 3)
-    x = zoom_2x(x)
-    return x
+    # Base task: extract the largest connected object
+    h, w = len(input_grid), len(input_grid[0])
+    result = [[0]*w for _ in range(h)]
+    # ... base task logic ...
+    # Chain: apply post-processing transforms
+    result = rotate_90(result)
+    result = swap_colors(result, 1, 3)
+    result = zoom_2x(result)
+    return result
 """)
 
     if analysis:
