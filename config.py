@@ -31,13 +31,13 @@ WEIGHT_CLASS = os.environ.get("WEIGHT_CLASS", "2xH200")
 TOTAL_TIME_BUDGET = float(os.environ.get("TOTAL_TIME_BUDGET", "3500"))
 
 # Max time per task for LLM (seconds)
-MAX_TASK_TIME = float(os.environ.get("MAX_TASK_TIME", "45"))
+MAX_TASK_TIME = float(os.environ.get("MAX_TASK_TIME", "60"))
 
 # Number of voting attempts for direct LLM solving
 VOTE_ATTEMPTS = int(os.environ.get("VOTE_ATTEMPTS", "5"))
 
 # Number of program synthesis attempts
-PROGRAM_ATTEMPTS = int(os.environ.get("PROGRAM_ATTEMPTS", "3"))
+PROGRAM_ATTEMPTS = int(os.environ.get("PROGRAM_ATTEMPTS", "8"))
 
 # Max tokens for LLM response
 MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "2048"))

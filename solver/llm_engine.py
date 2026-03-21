@@ -43,8 +43,8 @@ class LLMEngine:
         api_base = VLLM_API_BASE
         print(f"[LLM] Connecting to vLLM at: {api_base}")
 
-        max_retries = 10
-        retry_interval = 5  # seconds
+        max_retries = 30
+        retry_interval = 10  # seconds
 
         try:
             from openai import OpenAI
@@ -92,7 +92,7 @@ class LLMEngine:
 
         # Strategy 1: Program synthesis FIRST (more reliable for exact match)
         # Code that passes all training examples is virtually guaranteed correct
-        prog_budget = time_budget * 0.65
+        prog_budget = time_budget * 0.75
         result = self._solve_with_program(train_examples, test_input, prog_budget)
         if result is not None:
             return result
@@ -145,7 +145,7 @@ class LLMEngine:
                     ],
                     temperature=temp,
                     max_tokens=2048,
-                    timeout=min(remaining - 1, 35),
+                    timeout=min(remaining - 1, 45),
                 )
                 content = response.choices[0].message.content
                 grid = _parse_grid_response(content)
@@ -173,14 +173,16 @@ class LLMEngine:
             return json.loads(most_common_str)
 
         # Single candidate with correct dimensions — cautiously return it
-        # Scoring = exact_matches / num_solved. Submitting uncertain answers
-        # is risky, but having 0 num_solved gives 0 score.
-        # Only do this if we have exactly 1 dimension-matching candidate.
         if expected_dims is not None and len(candidates) == 1:
             if dims(candidates[0]) == expected_dims:
                 return candidates[0]
 
-        # No consensus — return None to avoid inflating denominator with wrong answers
+        # Multiple candidates, no consensus — return dim-matching one if only 1 fits
+        if expected_dims is not None and len(candidates) > 1:
+            dim_exact = [g for g in candidates if dims(g) == expected_dims]
+            if len(dim_exact) == 1:
+                return dim_exact[0]
+
         return None
 
     def _solve_with_program(
@@ -189,28 +191,39 @@ class LLMEngine:
         test_input: Grid,
         time_budget: float,
     ) -> Optional[Grid]:
-        """Ask LLM to write a Python function, with adaptive attempts."""
+        """Ask LLM to write a Python function, with adaptive attempts + refinement."""
         start = time.time()
 
-        # Chain decomposition FIRST — Hone problems ARE chains of known transforms
-        # applied after a base ARC task. Giving the LLM the exact transform code
-        # maximizes the chance it can compose the right solution.
         prompt_builders = [
             _build_chain_decomposition_prompt,
             _build_program_synthesis_prompt_detailed,
             _build_program_synthesis_prompt,
-            _build_chain_decomposition_prompt,  # retry chain decomposition at higher temp
+            _build_chain_decomposition_prompt,
+            _build_program_synthesis_prompt_detailed,
+            _build_program_synthesis_prompt,
+            _build_chain_decomposition_prompt,
+            _build_program_synthesis_prompt_detailed,
         ]
 
+        best_partial = None  # (code, num_passed, error_info)
+
         attempt = 0
-        max_attempts = 4
+        max_attempts = 8
         while attempt < max_attempts:
             remaining = time_budget - (time.time() - start)
             if remaining < 5:
                 break
 
-            temp = 0.1 + (attempt * 0.15)
-            prompt = prompt_builders[attempt % len(prompt_builders)](train_examples, test_input)
+            temp = 0.1 + (attempt * 0.1)
+
+            # If we have a partial solution, try refinement instead of fresh prompt
+            if best_partial is not None and attempt >= 2 and attempt % 2 == 0:
+                prompt = _build_refinement_prompt(
+                    train_examples, test_input,
+                    best_partial[0], best_partial[2],
+                )
+            else:
+                prompt = prompt_builders[attempt % len(prompt_builders)](train_examples, test_input)
 
             try:
                 response = self.client.chat.completions.create(
@@ -221,7 +234,7 @@ class LLMEngine:
                     ],
                     temperature=temp,
                     max_tokens=2048,
-                    timeout=min(remaining - 1, 35),
+                    timeout=min(remaining - 1, 45),
                 )
                 content = response.choices[0].message.content
                 code = _extract_code(content)
@@ -229,6 +242,14 @@ class LLMEngine:
                     result = _execute_solver_code(code, train_examples, test_input)
                     if result is not None and is_valid(result):
                         return result
+
+                    # Track partial success for refinement
+                    partial = _check_partial_success(code, train_examples)
+                    if partial is not None:
+                        num_passed, error_info = partial
+                        if best_partial is None or num_passed > best_partial[1]:
+                            best_partial = (code, num_passed, error_info)
+                            print(f"    [LLM] Partial: {num_passed}/{len(train_examples)} examples passed")
             except Exception as e:
                 print(f"    [LLM] Program synthesis attempt {attempt+1} failed: {e}")
 
@@ -646,6 +667,99 @@ def solve(input_grid):
     parts.append("Include the helper functions you use inside solve(). Compose them to match ALL examples.")
 
     return "\n".join(parts)
+
+
+def _build_refinement_prompt(
+    train_examples: List[Dict],
+    test_input: Grid,
+    previous_code: str,
+    error_info: str,
+) -> str:
+    """Build a prompt that shows the previous attempt and asks for a fix."""
+    parts = []
+    parts.append("# Fix the following ARC puzzle solver\n")
+    parts.append("The previous attempt was CLOSE but not correct. Here's the code and what went wrong:\n")
+    parts.append(f"## Previous Code\n```python\n{previous_code}\n```\n")
+    parts.append(f"## Error\n{error_info}\n")
+    parts.append("## Training Examples\n")
+
+    for i, ex in enumerate(train_examples, 1):
+        ih, iw = dims(ex["input"])
+        oh, ow = dims(ex["output"])
+        parts.append(f"Example {i} ({ih}x{iw} -> {oh}x{ow}):")
+        parts.append(f"  Input:  {json.dumps(ex['input'])}")
+        parts.append(f"  Output: {json.dumps(ex['output'])}\n")
+
+    th, tw = dims(test_input)
+    parts.append(f"Test input ({th}x{tw}): {json.dumps(test_input)}\n")
+    parts.append("Fix the solve() function so it produces the EXACT correct output for ALL examples.")
+    parts.append("Keep what works, fix what's broken. Wrap in ```python ... ```.")
+
+    return "\n".join(parts)
+
+
+def _check_partial_success(
+    code: str,
+    train_examples: List[Dict],
+) -> Optional[tuple]:
+    """Check how many training examples the code passes. Returns (num_passed, error_info) or None."""
+    import signal
+
+    dangerous = ['import os', 'import sys', 'subprocess', 'eval(', 'exec(',
+                 '__import__', 'open(', 'file(', 'input(', 'globals(']
+    for d in dangerous:
+        if d in code:
+            return None
+
+    safe_imports = [
+        'from copy import deepcopy', 'import copy',
+        'from collections import defaultdict', 'from collections import Counter',
+        'import collections', 'from itertools import product', 'import itertools',
+        'from typing import List, Tuple, Dict, Set, Optional, Any', 'from typing import *',
+    ]
+    clean_code = code
+    for imp_str in safe_imports:
+        clean_code = clean_code.replace(imp_str, '')
+
+    builtins_dict = _safe_builtins()
+    namespace = {"__builtins__": builtins_dict}
+
+    try:
+        exec(clean_code, namespace, namespace)
+    except Exception:
+        return None
+
+    solve_fn = namespace.get('solve')
+    if solve_fn is None:
+        return None
+
+    def _timeout_handler(signum, frame):
+        raise TimeoutError("timeout")
+
+    old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+    try:
+        signal.alarm(6)
+        num_passed = 0
+        error_info = ""
+        for i, ex in enumerate(train_examples):
+            try:
+                result = solve_fn(ex["input"])
+                if result == ex["output"]:
+                    num_passed += 1
+                else:
+                    got_dims = f"{len(result)}x{len(result[0])}" if result and result[0] else "invalid"
+                    exp_dims = f"{len(ex['output'])}x{len(ex['output'][0])}"
+                    error_info = f"Example {i+1}: wrong output (got {got_dims}, expected {exp_dims})"
+            except TimeoutError:
+                return None
+            except Exception as e:
+                error_info = f"Example {i+1}: runtime error: {type(e).__name__}: {e}"
+        if num_passed == 0:
+            return None
+        return (num_passed, error_info)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
 
 
 # ============= PARSING =============

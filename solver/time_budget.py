@@ -24,8 +24,8 @@ class TimeBudget:
         # Reserve minimum 2s per remaining task
         min_reserved = max(0, (tasks_remaining - 1) * 2)
         available = remaining - min_reserved
-        # Cap at 45s per task to spread budget across more tasks
-        return max(3.0, min(45.0, available))
+        # Cap at 60s per task — 8 program synthesis attempts need more time
+        return max(3.0, min(60.0, available))
 
     def should_use_llm(self, tasks_remaining: int) -> bool:
         return self.budget_for_task(tasks_remaining) >= 8.0
