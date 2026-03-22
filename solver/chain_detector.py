@@ -857,6 +857,11 @@ def _detect_output_transform_validated(
     if r and _zoom_makes_sense(inputs, outputs, r[2], 2):
         return r
 
+    # Try dimension-swapping geometric transforms
+    r = _detect_output_geometric(inputs, outputs)
+    if r is not None:
+        return r
+
     return None
 
 
@@ -905,6 +910,38 @@ def _is_valid_zoom_source(grid: Grid) -> bool:
                 return True
 
     return False
+
+
+def _detect_output_geometric(
+    inputs: List[Grid],
+    outputs: List[Grid],
+) -> Optional[Tuple[str, Optional[Dict], List[Grid]]]:
+    """Detect dimension-swapping geometric transform as last chain step.
+
+    If all output dims are (iw, ih) — swapped vs input dims (ih, iw) — a
+    dimension-swapping transform was likely applied last. Returns 'transpose'
+    as the detected transform; the orchestrator tries all 4 alternatives
+    (transpose, flip_antidiag, rotate_90, rotate_270) during validation,
+    so the specific choice here doesn't matter.
+    """
+    if len(inputs) < 2:
+        return None
+
+    for inp, out in zip(inputs, outputs):
+        ih, iw = dims(inp)
+        oh, ow = dims(out)
+        # Dims must be swapped AND grid must not be square (ambiguous)
+        if ih == iw or oh != iw or ow != ih:
+            return None
+
+    # Strip using transpose (self-inverse)
+    stripped = [T.transpose(out, None) for out in outputs]
+
+    # Stripped must not be identical to inputs
+    if all(grids_equal(s, inp) for s, inp in zip(stripped, inputs)):
+        return None
+
+    return ("transpose", None, stripped)
 
 
 def _detect_output_zoom_2x(outputs):

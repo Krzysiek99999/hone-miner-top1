@@ -11,6 +11,7 @@ import time
 from typing import List, Dict, Optional, Any
 
 from solver.grid_utils import Grid, dims, is_valid, deep_copy, grids_equal, colors_in
+from solver import transforms as T
 from solver.chain_detector import (
     try_direct_transforms,
     try_zoom_wrapped_transforms,
@@ -20,6 +21,21 @@ from solver.chain_detector import (
 from solver.llm_engine import LLMEngine
 from solver.validator import validate_prediction, infer_output_dims
 from solver.time_budget import TimeBudget
+
+
+_DIM_SWAPPING_TRANSFORMS = {"transpose", "flip_antidiagonal", "rotate_90", "rotate_270"}
+
+# Inverse lookup: to strip transform T from output, apply INVERSE_T
+_INVERSE_MAP = {
+    "zoom_2x": "downsample_2x",
+    "transpose": "transpose",
+    "flip_antidiagonal": "flip_antidiagonal",
+    "rotate_90": "rotate_270",
+    "rotate_270": "rotate_90",
+    "rotate_180": "rotate_180",
+    "flip_horizontal": "flip_horizontal",
+    "flip_vertical": "flip_vertical",
+}
 
 
 class Orchestrator:
@@ -181,26 +197,9 @@ class Orchestrator:
         # we waste time solving the wrong simplified problem.
         output_chain = detect_output_chain(inputs, outputs)
         if output_chain:
-            stripped_outputs = outputs
-            for step in reversed(output_chain):
-                new_stripped = []
-                for out in stripped_outputs:
-                    if step["name"] == "zoom_2x":
-                        from solver.transforms import downsample_2x
-                        new_stripped.append(downsample_2x(out))
-                    elif step["name"] == "zoom_3x":
-                        h, w = dims(out)
-                        new_stripped.append(
-                            [[out[r*3][c*3] for c in range(w//3)] for r in range(h//3)]
-                        )
-                    else:
-                        new_stripped = None
-                        break
-                if new_stripped is None:
-                    break
-                stripped_outputs = new_stripped
+            stripped_outputs = self._strip_output_chain(outputs, output_chain)
 
-            if stripped_outputs is not None and stripped_outputs != outputs:
+            if stripped_outputs is not None:
                 simplified_train = [
                     {"input": ex["input"], "output": so}
                     for ex, so in zip(train, stripped_outputs)
@@ -214,9 +213,21 @@ class Orchestrator:
                     time_budget=layer2_budget,
                 )
                 if llm_result is not None:
+                    # Try detected chain first
                     final = apply_chain(llm_result, output_chain)
                     if validate_prediction(train, test_input, final):
                         return final
+                    # For geometric transforms, try all dimension-swapping alternatives
+                    # (1 LLM call, 4 instant validation attempts)
+                    detected_name = output_chain[0]["name"] if len(output_chain) == 1 else None
+                    if detected_name in _DIM_SWAPPING_TRANSFORMS:
+                        for alt_name in _DIM_SWAPPING_TRANSFORMS:
+                            if alt_name == detected_name:
+                                continue
+                            alt_chain = [{"name": alt_name, "params": None}]
+                            final = apply_chain(llm_result, alt_chain)
+                            if validate_prediction(train, test_input, final):
+                                return final
 
         # Layer 3: Full LLM solving with chain hints
         remaining = time_budget - (time.time() - start)
@@ -232,6 +243,33 @@ class Orchestrator:
                 return result
 
         return None
+
+    def _strip_output_chain(self, outputs, output_chain):
+        """Strip detected chain transforms from outputs (apply inverses)."""
+        stripped = outputs
+        for step in reversed(output_chain):
+            name = step["name"]
+            if name == "zoom_3x":
+                new_stripped = []
+                for out in stripped:
+                    h, w = dims(out)
+                    if h % 3 != 0 or w % 3 != 0:
+                        return None
+                    new_stripped.append(
+                        [[out[r*3][c*3] for c in range(w//3)] for r in range(h//3)]
+                    )
+                stripped = new_stripped
+            elif name in _INVERSE_MAP:
+                inv_name = _INVERSE_MAP[name]
+                inv_fn = T.ALL_TRANSFORMS.get(inv_name)
+                if inv_fn is None:
+                    return None
+                stripped = [inv_fn(out, step.get("params")) for out in stripped]
+            else:
+                return None
+        if stripped == outputs:
+            return None
+        return stripped
 
     def _detect_chain_hints(self, inputs, outputs):
         """Detect structural hints about what transforms may be involved."""
