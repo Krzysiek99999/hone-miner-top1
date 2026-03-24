@@ -37,10 +37,10 @@ MAX_TASK_TIME = float(os.environ.get("MAX_TASK_TIME", "60"))
 VOTE_ATTEMPTS = int(os.environ.get("VOTE_ATTEMPTS", "5"))
 
 # Number of program synthesis attempts
-PROGRAM_ATTEMPTS = int(os.environ.get("PROGRAM_ATTEMPTS", "8"))
+PROGRAM_ATTEMPTS = int(os.environ.get("PROGRAM_ATTEMPTS", "12"))
 
-# Max tokens for LLM response
-MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "2048"))
+# Max tokens for LLM response (4096 for Qwen3 thinking + answer)
+MAX_TOKENS = int(os.environ.get("MAX_TOKENS", "4096"))
 
 # LLM temperature range for voting (start, step)
 TEMP_START = float(os.environ.get("TEMP_START", "0.3"))

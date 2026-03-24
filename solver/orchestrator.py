@@ -207,7 +207,7 @@ class Orchestrator:
                 chain_desc = f"Original outputs had these transforms applied: {[s['name'] for s in output_chain]}"
 
                 remaining = time_budget - (time.time() - start)
-                layer2_budget = min(remaining * 0.4, 15.0)
+                layer2_budget = min(remaining * 0.4, 60.0)
                 llm_result = self.llm.solve_simplified(
                     simplified_train, test_input, chain_desc,
                     time_budget=layer2_budget,

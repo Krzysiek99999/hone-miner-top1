@@ -43,8 +43,8 @@ class LLMEngine:
         api_base = VLLM_API_BASE
         print(f"[LLM] Connecting to vLLM at: {api_base}")
 
-        max_retries = 30
-        retry_interval = 10  # seconds
+        max_retries = 60
+        retry_interval = 10  # seconds (60x10=600s for large MoE models)
 
         try:
             from openai import OpenAI
@@ -144,8 +144,8 @@ class LLMEngine:
                         {"role": "user", "content": prompt},
                     ],
                     temperature=temp,
-                    max_tokens=2048,
-                    timeout=min(remaining - 1, 45),
+                    max_tokens=4096,
+                    timeout=min(remaining - 1, 120),
                 )
                 content = response.choices[0].message.content
                 grid = _parse_grid_response(content)
@@ -233,8 +233,8 @@ class LLMEngine:
                         {"role": "user", "content": prompt},
                     ],
                     temperature=temp,
-                    max_tokens=2048,
-                    timeout=min(remaining - 1, 45),
+                    max_tokens=4096,
+                    timeout=min(remaining - 1, 120),
                 )
                 content = response.choices[0].message.content
                 code = _extract_code(content)
@@ -286,8 +286,8 @@ class LLMEngine:
                         {"role": "user", "content": prompt},
                     ],
                     temperature=0.3 + attempt * 0.15,
-                    max_tokens=2048,
-                    timeout=min(remaining - 2, 90),
+                    max_tokens=4096,
+                    timeout=min(remaining - 2, 120),
                 )
                 grid = _parse_grid_response(response.choices[0].message.content)
                 if grid is not None and is_valid(grid):
@@ -738,7 +738,7 @@ def _check_partial_success(
 
     old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
     try:
-        signal.alarm(6)
+        signal.alarm(10)
         num_passed = 0
         error_info = ""
         for i, ex in enumerate(train_examples):
@@ -896,7 +896,7 @@ def _execute_solver_code(
     code: str,
     train_examples: List[Dict],
     test_input: Grid,
-    timeout_sec: float = 5.0,
+    timeout_sec: float = 10.0,
 ) -> Optional[Grid]:
     """Safely execute LLM-generated solver code with timeout."""
     import signal
